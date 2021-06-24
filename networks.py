@@ -5,8 +5,8 @@ from torch.nn import functional as F
 
 RELU_SHIFT = 1e-12
 DNA_KERN_SIZE = 5
-STATE_DIM = 5
-ACTION_DIM = 5
+STATE_DIM = 0#5
+ACTION_DIM = 4#5
 
 
 class ConvLSTM(nn.Module):
@@ -38,9 +38,9 @@ class ConvLSTM(nn.Module):
 
 
 class network(nn.Module):
-    def __init__(self, channels=3,
-                 height=64,
-                 width=64,
+    def __init__(self, channels=1,
+                 height=256,
+                 width=256,
                  iter_num=-1.0,
                  k=-1,
                  use_state=True,
@@ -129,9 +129,9 @@ class network(nn.Module):
                 self.fc_stp = nn.Linear(100, (self.num_masks-1) * 6)
         #  N * 32 * H * W -> N * 11 * H * W
         self.maskout = nn.ConvTranspose2d(lstm_size[6], self.num_masks+1, kernel_size=1, stride=1)
-        self.stateout = nn.Linear(STATE_DIM+ACTION_DIM, STATE_DIM)
+        # self.stateout = nn.Linear(STATE_DIM+ACTION_DIM, STATE_DIM)
 
-    def forward(self, images, actions, init_state):
+    def forward(self, images, actions):
         '''
 
         :param inputs: T * N * C * H * W
@@ -143,7 +143,7 @@ class network(nn.Module):
         lstm_state1, lstm_state2, lstm_state3, lstm_state4 = None, None, None, None
         lstm_state5, lstm_state6, lstm_state7 = None, None, None
         gen_images, gen_states = [], []
-        current_state = init_state
+        # current_state = init_state
         if self.k == -1:
             feedself = True
         else:
@@ -164,6 +164,7 @@ class network(nn.Module):
                 # Always feed in ground_truth
                 image = image
 
+
             enc0 = self.enc0_norm(torch.relu(self.enc0(image)))
 
             lstm1, lstm_state1 = self.lstm1(enc0, lstm_state1)
@@ -183,7 +184,8 @@ class network(nn.Module):
             enc2 = torch.relu(self.enc2(lstm4))
 
             # pass in state and action
-            state_action = torch.cat([action, current_state], dim=1)
+            # state_action = torch.cat([action, current_state], dim=1)
+            state_action = action
             smear = torch.reshape(state_action, list(state_action.shape)+[1, 1])
             smear = smear.repeat(1, 1, enc2.shape[2], enc2.shape[3])
             if self.use_state:
@@ -232,10 +234,10 @@ class network(nn.Module):
 
             gen_images.append(output)
 
-            current_state = self.stateout(state_action)
-            gen_states.append(current_state)
+            # current_state = self.stateout(state_action)
+            # gen_states.append(current_state)
 
-        return gen_images, gen_states
+        return gen_images
 
     def stp_transformation(self, image, stp_input):
         identity_params = torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0], dtype=torch.float32).unsqueeze(1).repeat(1, self.num_masks-1)

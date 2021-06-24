@@ -1,0 +1,1 @@
+python -u ./train.py --data_dir ../heatmap_dynamics_data_large --model CDNA --channels 1 --output_dir ./weights --sequence_length 5 --context_frames 1 --num_masks 10 --schedsamp_k 900.0 --batch_size 16 --learning_rate 0.001 --epochs 10 --print_interval 10 --device cuda --use_state --height 256 --width 256

@@ -4,7 +4,8 @@ from torch import nn
 from networks import network
 from data import build_dataloader
 from torch.nn import functional as F
-
+import numpy as np
+from PIL import Image
 
 def peak_signal_to_noise_ratio(true, pred):
   return 10.0 * torch.log(torch.tensor(1.0) / F.mse_loss(true, pred)) / torch.log(torch.tensor(10.0))
@@ -31,10 +32,11 @@ class Model():
         print("--------------------start training epoch %2d--------------------" % epoch)
         for iter_, (images, actions, states) in enumerate(self.dataloader['train']):
             self.net.zero_grad()
+            # print(images.shape)
             images = images.permute([1, 0, 2, 3, 4]).unbind(0)
             actions = actions.permute([1, 0, 2]).unbind(0)
-            states = states.permute([1, 0, 2]).unbind(0)
-            gen_images, gen_states = self.net(images, actions, states[0])
+            # states = states.permute([1, 0, 2]).unbind(0)
+            gen_images = self.net(images, actions)
 
             loss, psnr = 0.0, 0.0
             for i, (image, gen_image) in enumerate(zip(images[self.opt.context_frames:], gen_images[self.opt.context_frames-1:])):
@@ -43,9 +45,9 @@ class Model():
                 loss += recon_loss
                 psnr += psnr_i
 
-            for i, (state, gen_state) in enumerate(zip(states[self.opt.context_frames:], gen_states[self.opt.context_frames-1:])):
-                state_loss = self.mse_loss(state, gen_state) * self.w_state
-                loss += state_loss
+            # for i, (state, gen_state) in enumerate(zip(states[self.opt.context_frames:], gen_states[self.opt.context_frames-1:])):
+            #     state_loss = self.mse_loss(state, gen_state) * self.w_state
+            #     loss += state_loss
             loss /= torch.tensor(self.opt.sequence_length - self.opt.context_frames)
             loss.backward()
             self.optimizer.step()
@@ -66,21 +68,62 @@ class Model():
         with torch.no_grad():
             recon_loss, state_loss = 0.0, 0.0
             for iter_, (images, actions, states) in enumerate(self.dataloader['valid']):
-                images = images.permute([1, 0, 2, 3, 4]).unbind(0)
-                actions = actions.permute([1, 0, 2]).unbind(0)
-                states = states.permute([1, 0, 2]).unbind(0)
-                gen_images, gen_states = self.net(images, actions, states[0])
+                images = images.unbind(1)
+                actions = actions.unbind(1)
+                # states = states.permute([1, 0, 2]).unbind(0)
+                gen_images = self.net(images, actions)
                 for i, (image, gen_image) in enumerate(
                         zip(images[self.opt.context_frames:], gen_images[self.opt.context_frames - 1:])):
                     recon_loss += self.mse_loss(image, gen_image)
 
-                for i, (state, gen_state) in enumerate(
-                        zip(states[self.opt.context_frames:], gen_states[self.opt.context_frames - 1:])):
-                    state_loss += self.mse_loss(state, gen_state) * self.w_state
+                # for i, (state, gen_state) in enumerate(
+                #         zip(states[self.opt.context_frames:], gen_states[self.opt.context_frames - 1:])):
+                #     state_loss += self.mse_loss(state, gen_state) * self.w_state
             recon_loss /= (torch.tensor(self.opt.sequence_length - self.opt.context_frames) * len(self.dataloader['valid'].dataset)/self.opt.batch_size)
             state_loss /= (torch.tensor(self.opt.sequence_length - self.opt.context_frames) * len(self.dataloader['valid'].dataset)/self.opt.batch_size)
 
             print("evaluation epoch: %3d, recon_loss: %6f, state_loss: %6f" % (epoch, recon_loss, state_loss))
+
+    def inference(self, path):
+        self.net.eval()
+        with torch.no_grad():
+            for iter_, (images, actions, targets) in enumerate(self.dataloader['valid']):
+                # images = images.permute([1, 0, 2, 3, 4])#.unbind(0)
+                # print(images.shape)
+                images = images.unbind(1)
+                # print(len(images))
+                actions = actions.unbind(1)
+                targets = targets.unbind(1)
+                gen_images = self.net(images, actions)
+                
+                gen_images_np = []
+                images_np = []
+                
+                for i, (image, gen_image) in enumerate(
+                        zip(images[self.opt.context_frames:], gen_images[self.opt.context_frames - 1:])):
+                    _, _, h, w = image.shape
+
+                    image = image.reshape((h,w)).detach().cpu().numpy().transpose(1,0)
+                    gen_image = gen_image.reshape((h,w)).detach().cpu().numpy().transpose(1,0)
+
+                    images_np.append(image)
+                    gen_images_np.append(gen_image)
+
+                gen_images_np = np.expand_dims(np.concatenate(gen_images_np, axis = 1), -1)
+                images_np = np.expand_dims(np.concatenate(images_np, axis = 1), -1)
+
+                pad = np.zeros(images_np.shape)
+
+                joined_image_np = np.concatenate([gen_images_np, pad, images_np], axis = 2)
+                # w,h = joined_image_np.shape
+
+                # joined_image_np = np.tile(joined_image_np, 3).reshape(w,h, -1)
+                joined_image_np = (joined_image_np * 255).astype(np.uint8)
+                filepath = os.path.join(path, str(iter_) + ".jpg")
+                im = Image.fromarray(joined_image_np)
+                im.save(filepath)
+                # im.save("your_file.jpeg")
+                # print(gen_images_np.shape, images_np.shape)
 
     def save_weight(self, epoch):
         torch.save(self.net.state_dict(), os.path.join(self.opt.output_dir, "net_epoch_%d.pth" % epoch))

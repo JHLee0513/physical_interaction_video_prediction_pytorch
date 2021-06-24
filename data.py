@@ -3,80 +3,155 @@ import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
+from PIL import Image
+import yaml
 
-IMG_EXTENSIONS = ('.npy',)
+from sklearn.model_selection import train_test_split
 
+# IMG_EXTENSIONS = ('.npy',)
+
+def get_idx(x):
+    return int(x.split(".")[0].split("_")[1])
 
 def make_dataset(path):
-    image_folders = os.path.join(path, 'image')
-    action_folders = os.path.join(path, 'action')
-    state_folders = os.path.join(path, 'state')
+    source_folders = os.path.join(path, 'source_segmentations')
+    action_folders = os.path.join(path, 'source_tools')
+    target_folders = os.path.join(path, 'next_segmentations')
 
-    if os.path.exists(image_folders) + os.path.exists(action_folders) + os.path.exists(state_folders) != 3:
+    if os.path.exists(source_folders) + os.path.exists(action_folders) + os.path.exists(target_folders) != 3:
         raise FileExistsError('some subfolders from data set do not exists!')
 
     samples = []
-    for sample in os.listdir(image_folders):
-        image, action, state = os.path.join(image_folders, sample), os.path.join(action_folders, sample), os.path.join(state_folders, sample)
-        samples.append((image, action, state))
+    samples_list = os.listdir(source_folders)
+    samples_list = sorted(samples_list, key = get_idx)
+    # sequence_length = 6
+    # num_sequences = len(samples_list) // sequence_length
+    # for i in range(num_sequences):
+    #     seq = []
+    #     for j in range(sequence_length):
+    #         sample = samples_list[i + j]
+    #         image, action, target = os.path.join(source_folders, sample), os.path.join(action_folders, sample), os.path.join(target_folders, sample)
+    #         seq.append((image, action, target))
+    #     samples.append(seq)
+    # return samples
+    # A bit of weird indexing on the images
+    episode_length = 30
+    num_episodes = len(samples_list) // episode_length
+    for i in range(num_episodes):
+        seq = []
+        for j in range(1,6):
+            sample = samples_list[i*episode_length + j]
+            image, action, target = os.path.join(source_folders, sample), os.path.join(action_folders, sample), os.path.join(target_folders, sample)
+            seq.append((image, action, target))
+        samples.append(seq)
+        seq = []
+
+        for j in range(6,31):
+            if j % 6 == 0:
+                if len(seq) == 5:
+                    samples.append(seq)
+                seq = []
+                continue
+            sample = samples_list[i*episode_length + j]
+            image, action, target = os.path.join(source_folders, sample), os.path.join(action_folders, sample), os.path.join(target_folders, sample)
+            seq.append((image, action, target))
     return samples
 
-
-def npy_loader(path):
-    samples = torch.from_numpy(np.load(path))
+def image_loader(path):
+    samples = Image.open(path)
     return samples
+
+def yaml_loader(path):
+    if path.split("/")[-1][:3] == "img":
+        # filename is image format, switch to tool yaml ext
+        root = "/".join(path.split("/")[:-1])
+        idx = path.split("/")[-1].split("_")[1].split(".")[0] # get number
+        path = os.path.join(root, "particles_" + idx + ".yaml")
+    with open(path) as file:
+        particles_list = yaml.load(file, Loader=yaml.FullLoader)
+        speed = float(particles_list['speed'])
+
+        tool_list = particles_list['tool']
+        x = []
+        y = []
+        for particle in tool_list:
+            x.append(particle[0])
+            y.append(particle[1])
+            hx, hy = particle[2], particle[3]
+        x = np.array(x).mean()
+        y = np.array(y).mean()
+
+        heading = np.arctan2(hx, hy)
+
+    return np.array([x, y, speed, heading])
 
 
 class PushDataset(Dataset):
-    def __init__(self, root, image_transform=None, action_transform=None, state_transform=None, loader=npy_loader, device='cpu'):
-        if not os.path.exists(root):
-            raise FileExistsError('{0} does not exists!'.format(root))
-        # self.subfolders = [f[0] for f in os.walk(root)][1:]
+    def __init__(self, samples, image_transform=None, device='cpu', size=(128,128)):
+        # if not os.path.exists(root):
+        #     raise FileExistsError('{0} does not exists!'.format(root))
         self.image_transform = image_transform
-        self.action_transform = action_transform
-        self.state_transform = state_transform
-        self.samples = make_dataset(root)
-        if len(self.samples) == 0:
-            raise (RuntimeError("Found 0 images in subfolders of: " + root + "\n"
-                                                                             "Supported image extensions are: " + ",".join(
-                IMG_EXTENSIONS)))
-        self.loader = loader
+        # self.samples = make_dataset(root)
+        self.samples = samples
         self.device = device
+
     def __getitem__(self, index):
-        image, action, state = self.samples[index]
-        image, action, state = self.loader(image), self.loader(action), self.loader(state)
+        samples_list = self.samples[index]
+        images = []
+        targets = []
+        actions = []
+        for (image, action, target) in samples_list:
+        # image, action, target = self.samples[index]
 
-        if self.image_transform is not None:
-            image = torch.cat([self.image_transform(single_image).unsqueeze(0) for single_image in image.unbind(0)], dim=0)
-        if self.action_transform is not None:
-            action = torch.cat([self.action_transform(single_action).unsqueeze(0) for single_action in action.unbind(0)], dim=0)
-        if self.state_transform is not None:
-            state = torch.cat([self.state_transform(single_state).unsqueeze(0) for single_state in state.unbind(0)], dim=0)
+            image = image_loader(image)
+            target = image_loader(target)
+            action = yaml_loader(action)
+            action = torch.tensor(action)
 
-        return image.to(self.device), action.to(self.device), state.to(self.device)
+            image = self.image_transform(image)
+            target = self.image_transform(target)
+
+            images.append(image.unsqueeze(0))
+            targets.append(target.unsqueeze(0))
+            actions.append(action.unsqueeze(0))
+
+        images = torch.cat(images)
+        targets = torch.cat(targets)
+        actions = torch.cat(actions)
+
+        # print(images.shape, targets.shape, actions.shape)
+
+        return images.to(self.device).float(), actions.to(self.device).float(), targets.to(self.device).float()
 
     def __len__(self):
         return len(self.samples)
 
-
 def build_dataloader(opt):
-    image_transform = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.Resize((opt.height, opt.width)),
-        transforms.ToTensor()
+
+    tf = transforms.Compose([
+        # transforms.Resize((64,64)),
+        transforms.Resize((256,256)),
+        transforms.ToTensor(),
     ])
 
+    samples = make_dataset(opt.data_dir)
+
+    # print(samples)
+
+    train, val = train_test_split(samples, test_size = 0.2, random_state = 42)
+
+
+    # print(len(samples))
+
     train_ds = PushDataset(
-        root=os.path.join(opt.data_dir, 'push_train'),
-        image_transform=image_transform,
-        loader=npy_loader,
+        samples = train,
+        image_transform=tf,
         device=opt.device
     )
 
     testseen_ds = PushDataset(
-        root=os.path.join(opt.data_dir, 'push_testseen'),
-        image_transform=image_transform,
-        loader=npy_loader,
+        samples = val,
+        image_transform=tf,
         device=opt.device
     )
 
