@@ -6,6 +6,7 @@ from data import build_dataloader
 from torch.nn import functional as F
 import numpy as np
 from PIL import Image
+import tqdm
 
 def peak_signal_to_noise_ratio(true, pred):
   return 10.0 * torch.log(torch.tensor(1.0) / F.mse_loss(true, pred)) / torch.log(torch.tensor(10.0))
@@ -30,16 +31,17 @@ class Model():
 
     def train_epoch(self, epoch):
         print("--------------------start training epoch %2d--------------------" % epoch)
-        for iter_, (images, actions, states) in enumerate(self.dataloader['train']):
+        for iter_, (images, actions, targets) in enumerate(self.dataloader['train']):
             self.net.zero_grad()
             # print(images.shape)
             images = images.permute([1, 0, 2, 3, 4]).unbind(0)
+            targets = targets.permute([1, 0, 2, 3, 4]).unbind(0)
             actions = actions.permute([1, 0, 2]).unbind(0)
-            # states = states.permute([1, 0, 2]).unbind(0)
             gen_images = self.net(images, actions)
 
             loss, psnr = 0.0, 0.0
-            for i, (image, gen_image) in enumerate(zip(images[self.opt.context_frames:], gen_images[self.opt.context_frames-1:])):
+            assert (self.opt.context_frames == 1)
+            for i, (image, gen_image) in enumerate(zip(targets, gen_images[self.opt.context_frames-1:])):
                 recon_loss = self.mse_loss(image, gen_image)
                 psnr_i = peak_signal_to_noise_ratio(image, gen_image)
                 loss += recon_loss
@@ -67,13 +69,14 @@ class Model():
     def evaluate(self, epoch):
         with torch.no_grad():
             recon_loss, state_loss = 0.0, 0.0
-            for iter_, (images, actions, states) in enumerate(self.dataloader['valid']):
+            for iter_, (images, actions, targets) in enumerate(self.dataloader['valid']):
                 images = images.unbind(1)
+                targets = targets.unbind(1)
                 actions = actions.unbind(1)
                 # states = states.permute([1, 0, 2]).unbind(0)
                 gen_images = self.net(images, actions)
                 for i, (image, gen_image) in enumerate(
-                        zip(images[self.opt.context_frames:], gen_images[self.opt.context_frames - 1:])):
+                        zip(targets, gen_images[self.opt.context_frames - 1:])):
                     recon_loss += self.mse_loss(image, gen_image)
 
                 # for i, (state, gen_state) in enumerate(
@@ -87,7 +90,7 @@ class Model():
     def inference(self, path):
         self.net.eval()
         with torch.no_grad():
-            for iter_, (images, actions, targets) in enumerate(self.dataloader['valid']):
+            for iter_, (images, actions, targets) in tqdm.tqdm(enumerate(self.dataloader['valid'])):
                 # images = images.permute([1, 0, 2, 3, 4])#.unbind(0)
                 # print(images.shape)
                 images = images.unbind(1)

@@ -6,8 +6,8 @@ from torch.nn import functional as F
 RELU_SHIFT = 1e-12
 DNA_KERN_SIZE = 5
 STATE_DIM = 0#5
-ACTION_DIM = 4#5
-
+# ACTION_DIM = 4#5
+ACTION_DIM = 21
 
 class ConvLSTM(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=5, forget_bias=1.0, padding=0):
