@@ -25,9 +25,14 @@ class Model():
         self.net.to(self.device)
         self.mse_loss = nn.MSELoss()
         self.w_state = 1e-4
+        self.prev_image = None
         if self.opt.pretrained_model:
             self.load_weight()
         self.optimizer = torch.optim.Adam(self.net.parameters(), self.opt.learning_rate)
+        # self.tf = transforms.Compose([
+        #     transforms.Resize((128,128)),
+        #     transforms.ToTensor(),
+        # ])
 
     def train_epoch(self, epoch):
         print("--------------------start training epoch %2d--------------------" % epoch)
@@ -108,25 +113,152 @@ class Model():
 
                     image = image.reshape((h,w)).detach().cpu().numpy().transpose(1,0)
                     gen_image = gen_image.reshape((h,w)).detach().cpu().numpy().transpose(1,0)
+                    # binarized image
+                    # threshold = 100
+                    # gen_image[gen_image <= threshold] = 0
+                    # gen_image[gen_image > threshold] = 255
 
                     images_np.append(image)
                     gen_images_np.append(gen_image)
 
-                gen_images_np = np.expand_dims(np.concatenate(gen_images_np, axis = 1), -1)
-                images_np = np.expand_dims(np.concatenate(images_np, axis = 1), -1)
+                # gen_images_np = gen_images_np[1:]
+                # images_np = images_np[1:]
+                assert len(gen_images_np) == 9 and len(images_np) == 9
+                gen_images_rows = []
+                images_rows = []
+                for i in range(3):
+                    gen_images_row = np.expand_dims(np.concatenate(gen_images_np[i*3:(i+1)*3], axis = 1), -1)
+                    images_row = np.expand_dims(np.concatenate(images_np[i*3:(i+1)*3], axis = 1), -1)
+                    gen_images_rows.append(gen_images_row)
+                    # print(gen_images_row.shape)
+                    images_rows.append(images_row)
+                    # gen_images_np[i*3:(i+1)*3]
 
-                pad = np.zeros(images_np.shape)
+                # gen_images_np = np.stack(gen_images_rows)
+                # images_np = np.stack([images_rows])
 
-                joined_image_np = np.concatenate([gen_images_np, pad, images_np], axis = 2)
+                gen_images_np = np.concatenate(gen_images_rows, axis=0)
+                images_np = np.concatenate(images_rows, axis=0)
+
+                gen_images_np = np.stack([gen_images_np, gen_images_np, gen_images_np], axis=-1)# / 255.                
+                images_np = np.stack([images_np, images_np, images_np], axis=-1)# / 255.
+
+                # print(gen_images_np.mean())
+
+                gen_images_np[gen_images_np < 0.5] = 0
+                gen_images_np[gen_images_np >= 0.5] = 1
+
+                gen_images_np *= np.array([100, 150, 50]).reshape((1,1,3)) # yellow
+                images_np *= np.array([25, 100, 205]).reshape((1,1,3))  # blue
+
+                joined_image_np = (gen_images_np + images_np).astype(np.uint8)
+
+                # gen_images_np = np.expand_dims(np.concatenate(gen_images_np, axis = 1), -1)
+                # images_np = np.expand_dims(np.concatenate(images_np, axis = 1), -1)
+
+
+                # pad = np.zeros(images_np.shape)
+                # print(gen_images_np.shape, images_np.shape, pad.shape)
+                
+                # joined_image_np = np.concatenate([gen_images_np, pad, images_np], axis = 2)
                 # w,h = joined_image_np.shape
 
                 # joined_image_np = np.tile(joined_image_np, 3).reshape(w,h, -1)
-                joined_image_np = (joined_image_np * 255).astype(np.uint8)
+                # joined_image_np = (joined_image_np * 255).astype(np.uint8)
+                # print(joined_image_np.shape)
+                joined_image_np = joined_image_np.reshape((128*3, 128*3, 3))
                 filepath = os.path.join(path, str(iter_) + ".jpg")
+                # print(joined_image_np.shape)
                 im = Image.fromarray(joined_image_np)
                 im.save(filepath)
                 # im.save("your_file.jpeg")
                 # print(gen_images_np.shape, images_np.shape)
+
+    # def inference_single(self, action, image=None, reset = False):
+    #     self.net.eval()
+    #     with torch.no_grad():
+    #         if reset or self.prev_image is None:
+    #             assert image is not None, "If running inference from new image provided image cannot be None."
+    #             self.prev_image = image
+    #         input_tensor = self.tf(self.prev_image).to(self.net.device)
+    #         action = torch.tensor([action]).to(self.net.device)
+    #         gen_images = self.net(input_tensor, action)
+            
+
+
+    #         for iter_, (images, actions, targets) in tqdm.tqdm(enumerate(self.dataloader['valid'])):
+    #             # images = images.permute([1, 0, 2, 3, 4])#.unbind(0)
+    #             # print(images.shape)
+    #             images = images.unbind(1)
+    #             # print(len(images))
+    #             actions = actions.unbind(1)
+    #             targets = targets.unbind(1)
+    #             gen_images = self.net(images, actions)
+                
+    #             gen_images_np = []
+    #             images_np = []
+                
+    #             for i, (image, gen_image) in enumerate(
+    #                     zip(images[self.opt.context_frames:], gen_images[self.opt.context_frames - 1:])):
+    #                 _, _, h, w = image.shape
+
+    #                 image = image.reshape((h,w)).detach().cpu().numpy().transpose(1,0)
+    #                 gen_image = gen_image.reshape((h,w)).detach().cpu().numpy().transpose(1,0)
+    #                 # binarized image
+    #                 # threshold = 100
+    #                 # gen_image[gen_image <= threshold] = 0
+    #                 # gen_image[gen_image > threshold] = 255
+
+    #                 images_np.append(image)
+    #                 gen_images_np.append(gen_image)
+
+    #             # gen_images_np = gen_images_np[1:]
+    #             # images_np = images_np[1:]
+    #             assert len(gen_images_np) == 9 and len(images_np) == 9
+    #             gen_images_rows = []
+    #             images_rows = []
+    #             for i in range(3):
+    #                 gen_images_row = np.expand_dims(np.concatenate(gen_images_np[i*3:(i+1)*3], axis = 1), -1)
+    #                 images_row = np.expand_dims(np.concatenate(images_np[i*3:(i+1)*3], axis = 1), -1)
+    #                 gen_images_rows.append(gen_images_row)
+    #                 # print(gen_images_row.shape)
+    #                 images_rows.append(images_row)
+    #                 # gen_images_np[i*3:(i+1)*3]
+
+    #             # gen_images_np = np.stack(gen_images_rows)
+    #             # images_np = np.stack([images_rows])
+
+    #             gen_images_np = np.concatenate(gen_images_rows, axis=0)
+    #             images_np = np.concatenate(images_rows, axis=0)
+    #             # print(gen_images_np.shape)
+
+    #             # gen_images_np = np.expand_dims(np.concatenate(gen_images_np, axis = 1), -1)
+    #             # images_np = np.expand_dims(np.concatenate(images_np, axis = 1), -1)
+
+
+    #             # pad = np.zeros(images_np.shape)
+    #             gen_images_np = np.stack([gen_images_np, gen_images_np, gen_images_np], axis=-1)# / 255.                
+    #             images_np = np.stack([images_np, images_np, images_np], axis=-1)# / 255.
+
+    #             gen_images_np *= np.array([0, 0, 205]).reshape((1,1,3))
+    #             images_np *= np.array([255, 245, 50]).reshape((1,1,3))
+
+    #             joined_image_np = gen_images_np + images_np
+
+    #             # joined_image_np = np.concatenate([gen_images_np, pad, images_np], axis = 2)
+    #             # w,h = joined_image_np.shape
+
+    #             # joined_image_np = np.tile(joined_image_np, 3).reshape(w,h, -1)
+    #             # joined_image_np = (joined_image_np * 255).astype(np.uint8)
+    #             joined_image_np = joined_image_np.astype(np.uint8)
+    #             # print(joined_image_np.shape)
+    #             joined_image_np = joined_image_np.reshape((128*3, 128*3, 3))
+    #             filepath = os.path.join(path, str(iter_) + ".jpg")
+    #             # print(joined_image_np.shape)
+    #             im = Image.fromarray(joined_image_np)
+    #             im.save(filepath)
+    #             # im.save("your_file.jpeg")
+    #             # print(gen_images_np.shape, images_np.shape)
 
     def save_weight(self, epoch):
         torch.save(self.net.state_dict(), os.path.join(self.opt.output_dir, "net_epoch_%d.pth" % epoch))
