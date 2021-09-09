@@ -157,6 +157,7 @@ class network(nn.Module):
             if feedself and done_warm_start:
                 # Feed in generated image.
                 image = gen_images[-1]
+                # print('generated_image feed')
             elif done_warm_start:
                 # Scheduled sampling
                 image = self.scheduled_sample(image, gen_images[-1], num_ground_truth)
@@ -238,6 +239,103 @@ class network(nn.Module):
             # gen_states.append(current_state)
 
         return gen_images
+
+    def forward_from_single(self, image, actions, T = 9):
+        '''
+        Generate future frame predictiosn from single input image and sequence of actions
+
+        :param image: N * C * H * W, state at t=0
+        :param actions: T' * N * C
+        :param T: number of rollouts
+
+        :invariant: T' >= T
+
+        :return: generated images T * N * C * H * W
+        '''
+
+
+        lstm_state1, lstm_state2, lstm_state3, lstm_state4 = None, None, None, None
+        lstm_state5, lstm_state6, lstm_state7 = None, None, None
+        gen_images = []
+        assert len(actions) >= T, "T(num_iters) exceeds sequence length of action!"
+        state = image
+        for t in range(T):
+            # if prev_gen is not None:
+                # use previously generated image
+                # image = prev_gen
+
+            enc0 = self.enc0_norm(torch.relu(self.enc0(state)))
+
+            lstm1, lstm_state1 = self.lstm1(enc0, lstm_state1)
+            lstm1 = self.lstm1_norm(lstm1)
+
+            lstm2, lstm_state2 = self.lstm2(lstm1, lstm_state2)
+            lstm2 = self.lstm2_norm(lstm2)
+
+            enc1 = torch.relu(self.enc1(lstm2))
+
+            lstm3, lstm_state3 = self.lstm3(enc1, lstm_state3)
+            lstm3 = self.lstm3_norm(lstm3)
+
+            lstm4, lstm_state4 = self.lstm4(lstm3, lstm_state4)
+            lstm4 = self.lstm4_norm(lstm4)
+
+            enc2 = torch.relu(self.enc2(lstm4))
+
+            # pass in state and action
+            # state_action = torch.cat([action, current_state], dim=1)
+            state_action = actions[t]
+            smear = torch.reshape(state_action, list(state_action.shape)+[1, 1])
+            smear = smear.repeat(1, 1, enc2.shape[2], enc2.shape[3])
+            if self.use_state:
+                enc2 = torch.cat([enc2, smear], dim=1)
+            enc3 = torch.relu(self.enc3(enc2))
+
+            lstm5, lstm_state5 = self.lstm5(enc3, lstm_state5)
+            lstm5 = self.lstm5_norm(lstm5)
+            enc4 = torch.relu(self.enc4(lstm5))
+
+            lstm6, lstm_state6 = self.lstm6(enc4, lstm_state6)
+            lstm6 = self.lstm6_norm(lstm6)
+            # skip connection
+            lstm6 = torch.cat([lstm6, enc1], dim=1)
+
+            enc5 = torch.relu(self.enc5(lstm6))
+
+            lstm7, lstm_state7 = self.lstm7(enc5, lstm_state7)
+            lstm7 = self.lstm7_norm(lstm7)
+            # skip connection
+            lstm7 = torch.cat([lstm7, enc0], dim=1)
+
+            enc6 = self.enc6_norm(torch.relu(self.enc6(lstm7)))
+
+            enc7 = torch.relu(self.enc7(enc6))
+
+            if self.dna:
+                if self.num_masks != 1:
+                    raise ValueError('Only one mask is supported for DNA model.')
+                transformed = [self.dna_transformation(state, enc7)]
+            else:
+                transformed = [torch.sigmoid(enc7)]
+                _input = lstm5.view(lstm5.shape[0], -1)
+                if self.cdna:
+                    transformed += self.cdna_transformation(state, _input)
+                else:
+                    transformed += self.stp_transformation(state, _input)
+
+            masks = torch.relu(self.maskout(enc6))
+            masks = torch.softmax(masks, dim=1)
+            mask_list = torch.split(masks, split_size_or_sections=1, dim=1)
+
+            output = mask_list[0] * state
+            for layer, mask in zip(transformed, mask_list[1:]):
+                output += layer * mask
+
+            gen_images.append(output)
+            state = output
+
+        return gen_images
+
 
     def stp_transformation(self, image, stp_input):
         identity_params = torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0], dtype=torch.float32).unsqueeze(1).repeat(1, self.num_masks-1)

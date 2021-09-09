@@ -7,6 +7,7 @@ from torch.nn import functional as F
 import numpy as np
 from PIL import Image
 import tqdm
+import cv2
 
 def peak_signal_to_noise_ratio(true, pred):
   return 10.0 * torch.log(torch.tensor(1.0) / F.mse_loss(true, pred)) / torch.log(torch.tensor(10.0))
@@ -42,7 +43,10 @@ class Model():
             images = images.permute([1, 0, 2, 3, 4]).unbind(0)
             targets = targets.permute([1, 0, 2, 3, 4]).unbind(0)
             actions = actions.permute([1, 0, 2]).unbind(0)
-            gen_images = self.net(images, actions)
+
+            # gen_images = self.net(images, actions)
+            image = images[0]
+            gen_images = self.net.forward_from_single(image, actions)
 
             loss, psnr = 0.0, 0.0
             assert (self.opt.context_frames == 1)
@@ -102,8 +106,11 @@ class Model():
                 # print(len(images))
                 actions = actions.unbind(1)
                 targets = targets.unbind(1)
-                gen_images = self.net(images, actions)
-                
+                # gen_images = self.net(images, actions)
+                image = images[0]
+                # print(image.shape)
+                gen_images = self.net.forward_from_single(image, actions)
+
                 gen_images_np = []
                 images_np = []
                 
@@ -152,7 +159,8 @@ class Model():
                 images_np *= np.array([25, 100, 205]).reshape((1,1,3))  # blue
 
                 joined_image_np = (gen_images_np + images_np).astype(np.uint8)
-
+                # print(joined_image_np.shape)
+                joined_image_np = cv2.resize(joined_image_np[:,:,0,:], (384*3, 384*3))
                 # gen_images_np = np.expand_dims(np.concatenate(gen_images_np, axis = 1), -1)
                 # images_np = np.expand_dims(np.concatenate(images_np, axis = 1), -1)
 
@@ -166,7 +174,7 @@ class Model():
                 # joined_image_np = np.tile(joined_image_np, 3).reshape(w,h, -1)
                 # joined_image_np = (joined_image_np * 255).astype(np.uint8)
                 # print(joined_image_np.shape)
-                joined_image_np = joined_image_np.reshape((128*3, 128*3, 3))
+                # joined_image_np = joined_image_np.reshape((256*3, 256*3, 3))
                 filepath = os.path.join(path, str(iter_) + ".jpg")
                 # print(joined_image_np.shape)
                 im = Image.fromarray(joined_image_np)
