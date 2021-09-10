@@ -1,8 +1,8 @@
 import os
 import torch
 from torch import nn
-from networks import network
-from data import build_dataloader
+from physical_interaction_video_prediction_pytorch.networks import network
+from physical_interaction_video_prediction_pytorch.data import build_dataloader
 from torch.nn import functional as F
 import numpy as np
 from PIL import Image
