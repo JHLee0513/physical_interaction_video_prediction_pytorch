@@ -53,6 +53,7 @@ class network(nn.Module):
         if stp + cdna + dna != 1:
             raise ValueError('More than one, or no network option specified.')
         lstm_size = [32, 32, 64, 64, 128, 64, 32]
+        # lstm_size = [16, 16, 32, 32, 64, 32, 16]
         self.dna = dna
         self.stp = stp
         self.cdna = cdna
@@ -74,7 +75,7 @@ class network(nn.Module):
         self.enc0 = nn.Conv2d(in_channels=channels, out_channels=lstm_size[0], kernel_size=5, stride=2, padding=2)
         self.enc0_norm = nn.LayerNorm([lstm_size[0], self.height//2, self.width//2])
         # N * 32 * H/2 * W/2 -> N * 32 * H/2 * W/2
-        self.lstm1 = ConvLSTM(in_channels=32, out_channels=lstm_size[0], kernel_size=5, padding=2)
+        self.lstm1 = ConvLSTM(in_channels=lstm_size[0], out_channels=lstm_size[0], kernel_size=5, padding=2)
         self.lstm1_norm = nn.LayerNorm([lstm_size[0], self.height//2, self.width//2])
         # N * 32 * H/2 * W/2 -> N * 32 * H/2 * W/2
         self.lstm2 = ConvLSTM(in_channels=lstm_size[0], out_channels=lstm_size[1], kernel_size=5, padding=2)
@@ -252,6 +253,7 @@ class network(nn.Module):
 
         :return: generated images T * N * C * H * W
         '''
+        # print(image.shape)
 
 
         lstm_state1, lstm_state2, lstm_state3, lstm_state4 = None, None, None, None

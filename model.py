@@ -109,8 +109,11 @@ class Model():
                 # gen_images = self.net(images, actions)
                 image = images[0]
                 # print(image.shape)
+                # print(len(actions),actions[0].shape)
+                # import time
+                # start = time.time()
                 gen_images = self.net.forward_from_single(image, actions)
-
+                # print("inference time %3f" % (time.time() - start))
                 gen_images_np = []
                 images_np = []
                 
@@ -154,13 +157,18 @@ class Model():
 
                 gen_images_np[gen_images_np < 0.5] = 0
                 gen_images_np[gen_images_np >= 0.5] = 1
+                images_np[images_np < 0.5] = 0
+                images_np[images_np >= 0.5] = 1
 
-                gen_images_np *= np.array([100, 150, 50]).reshape((1,1,3)) # yellow
-                images_np *= np.array([25, 100, 205]).reshape((1,1,3))  # blue
+                # gen_images_np *= np.array([100, 150, 50]).reshape((1,1,3)) # yellow
+                gen_images_np *= np.array([255, 0, 0]).reshape((1,1,3)) # red
+                # images_np *= np.array([25, 100, 205]).reshape((1,1,3))  # blue
+                images_np *= np.array([0, 0, 255]).reshape((1,1,3))  # blue
 
                 joined_image_np = (gen_images_np + images_np).astype(np.uint8)
+                joined_image_np[joined_image_np.sum(-1) == 0] = [255, 255, 255]
                 # print(joined_image_np.shape)
-                joined_image_np = cv2.resize(joined_image_np[:,:,0,:], (384*3, 384*3))
+                joined_image_np = cv2.resize(joined_image_np[:,:,0,:], (512*3, 512*3), interpolation=cv2.INTER_LINEAR)
                 # gen_images_np = np.expand_dims(np.concatenate(gen_images_np, axis = 1), -1)
                 # images_np = np.expand_dims(np.concatenate(images_np, axis = 1), -1)
 

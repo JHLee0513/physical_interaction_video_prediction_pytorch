@@ -190,8 +190,8 @@ class PushDataset(Dataset):
 def build_dataloader(opt):
 
     tf = transforms.Compose([
-        # transforms.Resize((64,64)),
-        transforms.Resize((128,128)),
+        transforms.Resize((64,64)), # for small model
+        # transforms.Resize((128,128)), # for large model
         transforms.ToTensor(),
     ])
 
